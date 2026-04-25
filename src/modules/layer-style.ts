@@ -1,4 +1,5 @@
 import type L from "leaflet";
+import { clamp } from "./math";
 
 export type LayerStyleState = {
   mapOpacity: number;
@@ -13,7 +14,7 @@ export function getDefaultLayerStyle(): LayerStyleState {
 }
 
 export function setMapOpacity(tileLayer: L.TileLayer, opacity: number): number {
-  const clamped = Math.max(0.2, Math.min(1, opacity));
+  const clamped = clamp(opacity, 0.2, 1);
   tileLayer.setOpacity(clamped);
   return clamped;
 }
