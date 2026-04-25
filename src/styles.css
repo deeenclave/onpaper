@@ -52,6 +52,7 @@ body {
 .metrics {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .metric {
@@ -85,10 +86,12 @@ button {
   padding: 10px 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
 }
 
 button:hover {
   border-color: var(--jg-gold);
+  transform: translateY(-1px);
 }
 
 .filters {
@@ -123,13 +126,14 @@ textarea {
 
 .layout {
   display: grid;
-  grid-template-columns: 290px 1fr 330px;
+  grid-template-columns: 290px 1fr 430px;
   gap: 12px;
-  min-height: 75vh;
+  min-height: 78vh;
 }
 
 .panel {
-  background: #fff;
+  background: #ffffffdf;
+  backdrop-filter: blur(4px);
   border: 1px solid var(--jg-sand);
   border-radius: 16px;
   box-shadow: 0 8px 20px #0000000d;
@@ -146,10 +150,18 @@ textarea {
   border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 8px 20px #0000000e;
-  background: #f9f7f4;
+  min-height: 980px;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }
 
 #paper {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
   min-height: 980px;
@@ -163,10 +175,11 @@ textarea {
   border-radius: 14px;
   overflow: hidden;
   background: #fff;
+  z-index: 4;
 }
 
 .issues {
-  padding-left: 18px;
+  padding-left: 0;
   display: grid;
   gap: 8px;
 }
@@ -175,6 +188,7 @@ textarea {
   border-radius: 12px;
   padding: 8px;
   list-style: none;
+  animation: fadeIn 0.3s ease;
 }
 
 .issues .error {
@@ -201,12 +215,6 @@ textarea {
   grid-template-columns: 1fr 1fr;
 }
 
-@media (max-width: 1400px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-}
-
 .stencil-buttons {
   display: grid;
   gap: 8px;
@@ -215,4 +223,60 @@ textarea {
 .stencil-btn {
   width: 100%;
   justify-content: flex-start;
+}
+
+.decision-panel {
+  background: #fff;
+  border: 1px solid var(--jg-sand);
+  border-radius: 12px;
+  padding: 10px;
+  color: var(--jg-muted);
+}
+
+.decision-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.decision-card {
+  border: 1px solid var(--jg-sand);
+  border-radius: 10px;
+  padding: 8px;
+  background: #fcfaf8;
+}
+
+.decision-card.recommended {
+  border-color: var(--jg-gold);
+  box-shadow: 0 0 0 2px #d4a37333;
+}
+
+.decision-card h4 {
+  margin: 0 0 4px;
+}
+
+.decision-card p {
+  margin: 3px 0;
+}
+
+.decision-note {
+  margin: 10px 0 0;
+  color: var(--jg-text);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 1600px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
 }

@@ -11,6 +11,19 @@ export type TripNodeType =
 export type Priority = 'low' | 'medium' | 'high';
 export type ReservationStatus = 'required' | 'booked' | 'pending' | 'not_required';
 
+export interface TripNodeWeights {
+  joy: number;
+  timeCost: number;
+  budgetImpact: number;
+  effort: number;
+  uniqueness: number;
+}
+
+export interface GeoPoint {
+  lat: number;
+  lng: number;
+}
+
 export interface TripNodeData {
   id: string;
   title: string;
@@ -26,6 +39,8 @@ export interface TripNodeData {
   tags: string[];
   icon: string;
   optional?: boolean;
+  geo: GeoPoint;
+  weights: TripNodeWeights;
 }
 
 export interface TripEdgeData {
@@ -79,5 +94,8 @@ export interface ExportedItinerary {
     totalActivities: number;
     totalDurationHours: number;
     issues: number;
+    tripScore: number;
+    joyAverage: number;
+    effortAverage: number;
   };
 }

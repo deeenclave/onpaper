@@ -1,6 +1,6 @@
 # JourneyGraph
 
-JourneyGraph is a premium node-based travel planner built on top of a JointJS TypeScript architecture, tailored for high-end family itinerary design.
+JourneyGraph is a premium node-based travel planner built with TypeScript + JointJS and anchored to a real map layer (Leaflet + OpenStreetMap).
 
 ## Run locally
 
@@ -16,44 +16,49 @@ npm run build
 npm run preview
 ```
 
-## Planner features
+## Planner experience
 
-- **Graph-based itinerary builder** with draggable nodes and editable links.
-- **Luxury card-style nodes** with icon, title, time window, duration, and metadata.
-- **Day grouping** via collapsible lanes (Day 1–Day 4).
-- **Stencil palette** for quick node insertion.
-- **Inspector panel** for editing node fields (category/day/cost/timing/reservation/notes).
-- **Top summary bar** with total cost, activities, duration, and validation alert count.
-- **Filters** by day, category, max cost, and priority.
-- **Critical path highlighting** (gold edges) and optional/fallback node de-emphasis.
-- **Minimap + pan/zoom + graph interactions** preserved.
+- **Map-anchored workflow canvas**: each POI node is tied to latitude/longitude and renders over Yellowstone geography.
+- **Drag-and-drop nodes**: move nodes directly; node geo-coordinates update from canvas interactions.
+- **Branching journey graph** with critical path highlighting.
+- **Decision support panel** for trade-off comparisons (side-by-side weighted option cards from decision nodes).
+- **Running trip score** with live metrics in the top summary row.
 
-## Seed Yellowstone itinerary
+## Node weighting model
 
-The app initializes with:
+Each node includes multi-dimensional planning weights:
 
-- **Trip:** 4-Day Luxury Family Yellowstone Getaway (Jul 1 – Jul 5, 2026)
-- **Travelers:** 3
-- **Nodes:** Flights, transfers, attractions, scenic points, restaurants, guided activities, decision/fallback branches
+- 🌟 `joy`
+- ⏱️ `timeCost`
+- 💸 `budgetImpact`
+- 🚶 `effort`
+- 🎲 `uniqueness`
 
-Data source is in `src/seed.ts`.
+These dimensions feed both per-node visuals and aggregate `tripScore` calculations.
 
-## Node types
+## Core features
 
-Supported `TripNodeType` values:
+- Day grouping lanes
+- Inspector editing (category, cost, timing, and weights)
+- Left palette for quick node insertion by type
+- Filters by day/category/cost/priority
+- Validation issue list
+- Export formats:
+  - JSON graph
+  - Markdown itinerary
+  - Printable family view
 
-- `flight`
-- `transport`
-- `attraction`
-- `restaurant`
-- `guided_activity`
-- `scenic_point`
-- `decision`
-- `fallback`
+## Seed itinerary
 
-## Data model
+The app ships with a full Yellowstone seed plan:
 
-Core TypeScript interfaces are in `src/types.ts`:
+- **Trip**: 4-Day Luxury Family Yellowstone Getaway
+- **Dates**: Jul 1 – Jul 5, 2026
+- Includes transport, attractions, scenic points, restaurants, guided activities, and decision/fallback branching.
+
+## TypeScript models
+
+Defined in `src/types.ts`:
 
 - `TripPlan`
 - `TripDay`
@@ -62,31 +67,23 @@ Core TypeScript interfaces are in `src/types.ts`:
 - `TripEdgeData`
 - `PlannerValidationIssue`
 - `ExportedItinerary`
+- `TripNodeWeights`
+- `GeoPoint`
 
 ## Validation intelligence
 
 Implemented in `src/planner-utils.ts`:
 
-- Detect overlapping activities
-- Flag overbooked days (>4 major activities)
-- Flag missing reservations
-- Highlight long travel chains
-- Suggest a slow day if overloaded
-- Mark high-cost nodes
-
-## Export formats
-
-Export actions are available in the top bar:
-
-1. **JSON graph** (`journeygraph-plan.json`)
-2. **Markdown itinerary** (`journeygraph-itinerary.md`)
-3. **Printable family view** (`journeygraph-family-view.txt`)
+- Overlapping activity detection
+- Overbooked-day warning (>4 major activities)
+- Missing reservation flags
+- Long travel chain warnings
+- Slow-day recommendations
+- High-cost markers
 
 ## Design language
 
-JourneyGraph styling follows a high-end travel visual system:
-
-- Warm off-white background (`#F7F5F2`)
-- Charcoal text (`#1F1F1F`)
-- Accent gold + sage/sky/lavender/sand supporting colors
-- Rounded cards, soft shadows, generous spacing, and minimal clutter
+- Warm off-white canvas and premium card styling
+- Rounded corners + soft shadows
+- Warm color emphasis for high-joy nodes, cooler tone for lower-joy/obligatory stops
+- Subtle motion in UI controls and issue rendering

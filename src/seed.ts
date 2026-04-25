@@ -1,4 +1,29 @@
-import { TripPlan } from './types';
+import { TripNodeData, TripPlan, TripNodeType } from './types';
+
+type SeedNode = Omit<TripNodeData, 'weights' | 'geo'> & {
+  geo: { lat: number; lng: number };
+  weights?: Partial<TripNodeData['weights']>;
+};
+
+const defaultWeights = {
+  joy: 7,
+  timeCost: 5,
+  budgetImpact: 4,
+  effort: 4,
+  uniqueness: 6
+};
+
+function node(seed: SeedNode): TripNodeData {
+  return {
+    ...seed,
+    weights: {
+      ...defaultWeights,
+      ...seed.weights
+    }
+  };
+}
+
+const create = (data: SeedNode[]) => data.map((d) => node(d));
 
 export const yellowstoneSeed: TripPlan = {
   title: '4-Day Luxury Family Yellowstone Getaway',
@@ -15,7 +40,7 @@ export const yellowstoneSeed: TripPlan = {
     { day: 3, date: '2026-07-03', title: 'Canyon & Wildlife' },
     { day: 4, date: '2026-07-04', title: 'Norris & Photography' }
   ],
-  nodes: [
+  nodes: create([
     {
       id: 'flight-in',
       title: 'United Flight Richmond → Bozeman',
@@ -29,7 +54,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'booked',
       notes: '1 stop · family seats together',
       tags: ['arrival', 'air'],
-      icon: '✈️'
+      icon: '✈️',
+      geo: { lat: 45.7772, lng: -111.152 },
+      weights: { joy: 5, timeCost: 10, budgetImpact: 10, effort: 6, uniqueness: 2 }
     },
     {
       id: 'private-transfer',
@@ -44,7 +71,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'booked',
       notes: 'Luxury SUV with child seat',
       tags: ['ground transport'],
-      icon: '🚘'
+      icon: '🚘',
+      geo: { lat: 44.976, lng: -110.702 },
+      weights: { joy: 6, effort: 3, timeCost: 6 }
     },
     {
       id: 'mammoth',
@@ -59,7 +88,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Light walk on arrival day',
       tags: ['nature', 'family'],
-      icon: '🏞️'
+      icon: '🏞️',
+      geo: { lat: 44.976, lng: -110.702 },
+      weights: { joy: 8, uniqueness: 8 }
     },
     {
       id: 'mammoth-dining',
@@ -74,7 +105,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'pending',
       notes: 'Window-side table requested',
       tags: ['dinner'],
-      icon: '🍽️'
+      icon: '🍽️',
+      geo: { lat: 44.9765, lng: -110.7005 },
+      weights: { joy: 7, budgetImpact: 6, uniqueness: 5 }
     },
     {
       id: 'old-faithful',
@@ -89,7 +122,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Catch morning eruption window',
       tags: ['must-see'],
-      icon: '🌋'
+      icon: '🌋',
+      geo: { lat: 44.4605, lng: -110.8281 },
+      weights: { joy: 9, uniqueness: 9 }
     },
     {
       id: 'grand-prismatic',
@@ -104,7 +139,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Drone banned. Bring wide lens.',
       tags: ['photography'],
-      icon: '🌈'
+      icon: '🌈',
+      geo: { lat: 44.525, lng: -110.8382 },
+      weights: { joy: 10, uniqueness: 9, effort: 5 }
     },
     {
       id: 'castle-geyser',
@@ -119,7 +156,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Flexible timing by eruption prediction',
       tags: ['geyser'],
-      icon: '🗻'
+      icon: '🗻',
+      geo: { lat: 44.4629, lng: -110.8352 },
+      weights: { joy: 7, uniqueness: 7 }
     },
     {
       id: 'fountain-paint-pot',
@@ -134,7 +173,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Boardwalk route stroller friendly',
       tags: ['family'],
-      icon: '🎨'
+      icon: '🎨',
+      geo: { lat: 44.542, lng: -110.7939 },
+      weights: { joy: 8, effort: 3 }
     },
     {
       id: 'west-thumb',
@@ -149,7 +190,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Golden hour by the lake',
       tags: ['lake view'],
-      icon: '🌊'
+      icon: '🌊',
+      geo: { lat: 44.4148, lng: -110.5728 },
+      weights: { joy: 8, uniqueness: 8 }
     },
     {
       id: 'weather-decision',
@@ -164,7 +207,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'If storms roll in, switch to fallback plan',
       tags: ['branching'],
-      icon: '🔀'
+      icon: '🔀',
+      geo: { lat: 44.4151, lng: -110.5742 },
+      weights: { joy: 5, effort: 2, uniqueness: 4 }
     },
     {
       id: 'indoor-fallback',
@@ -180,7 +225,9 @@ export const yellowstoneSeed: TripPlan = {
       notes: 'Backup for thunderstorms',
       tags: ['optional', 'weather-safe'],
       icon: '☔',
-      optional: true
+      optional: true,
+      geo: { lat: 44.4605, lng: -110.8286 },
+      weights: { joy: 6, budgetImpact: 5, effort: 2 }
     },
     {
       id: 'grand-canyon',
@@ -195,7 +242,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Artist Point first',
       tags: ['iconic'],
-      icon: '🏜️'
+      icon: '🏜️',
+      geo: { lat: 44.7208, lng: -110.4963 },
+      weights: { joy: 9, uniqueness: 8 }
     },
     {
       id: 'upper-falls',
@@ -210,7 +259,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Short but steep walk',
       tags: ['waterfall'],
-      icon: '💧'
+      icon: '💧',
+      geo: { lat: 44.7148, lng: -110.5011 },
+      weights: { joy: 8, effort: 6, uniqueness: 7 }
     },
     {
       id: 'hayden',
@@ -225,7 +276,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Best for bison spotting',
       tags: ['wildlife'],
-      icon: '🦬'
+      icon: '🦬',
+      geo: { lat: 44.6419, lng: -110.447 },
+      weights: { joy: 9, uniqueness: 8 }
     },
     {
       id: 'wildlife-safari',
@@ -240,7 +293,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'pending',
       notes: 'Naturalist guide included',
       tags: ['guided', 'sunset'],
-      icon: '🧭'
+      icon: '🧭',
+      geo: { lat: 45.026, lng: -110.704 },
+      weights: { joy: 9, budgetImpact: 8, effort: 5, uniqueness: 8 }
     },
     {
       id: 'norris',
@@ -255,7 +310,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Cooler morning recommended',
       tags: ['geyser basin'],
-      icon: '♨️'
+      icon: '♨️',
+      geo: { lat: 44.7266, lng: -110.7045 },
+      weights: { joy: 8, uniqueness: 8 }
     },
     {
       id: 'black-sand',
@@ -270,7 +327,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Short colorful loop',
       tags: ['thermal'],
-      icon: '🖤'
+      icon: '🖤',
+      geo: { lat: 44.4697, lng: -110.8304 },
+      weights: { joy: 8, uniqueness: 7 }
     },
     {
       id: 'lake-butte',
@@ -285,7 +344,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'not_required',
       notes: 'Best with clear skies',
       tags: ['overlook'],
-      icon: '📸'
+      icon: '📸',
+      geo: { lat: 44.5052, lng: -110.172 },
+      weights: { joy: 8, uniqueness: 8 }
     },
     {
       id: 'photo-tour',
@@ -300,7 +361,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'booked',
       notes: 'Private guide + premium lenses',
       tags: ['guided', 'photo'],
-      icon: '📷'
+      icon: '📷',
+      geo: { lat: 44.4212, lng: -110.3738 },
+      weights: { joy: 9, budgetImpact: 7, uniqueness: 8 }
     },
     {
       id: 'slippery-otter',
@@ -315,7 +378,9 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'required',
       notes: 'Reserve patio if weather permits',
       tags: ['dinner', 'local favorite'],
-      icon: '🍺'
+      icon: '🍺',
+      geo: { lat: 44.6624, lng: -111.1048 },
+      weights: { joy: 7, budgetImpact: 6 }
     },
     {
       id: 'flight-out',
@@ -330,9 +395,11 @@ export const yellowstoneSeed: TripPlan = {
       reservationStatus: 'booked',
       notes: 'Red-eye return',
       tags: ['return'],
-      icon: '🛫'
+      icon: '🛫',
+      geo: { lat: 45.7772, lng: -111.152 },
+      weights: { joy: 4, timeCost: 9, effort: 6, uniqueness: 2 }
     }
-  ],
+  ]),
   edges: [
     { id: 'e1', source: 'flight-in', target: 'private-transfer', critical: true },
     { id: 'e2', source: 'private-transfer', target: 'mammoth', critical: true },
@@ -357,3 +424,23 @@ export const yellowstoneSeed: TripPlan = {
     { id: 'e21', source: 'slippery-otter', target: 'flight-out', critical: true }
   ]
 };
+
+export function createQuickNode(type: TripNodeType, id: string): TripNodeData {
+  return node({
+    id,
+    title: `${type.replace('_', ' ')} node`,
+    category: type,
+    day: 1,
+    timeWindow: '09:00–10:00',
+    duration: '1h',
+    location: 'Custom location',
+    cost: 0,
+    priority: 'medium',
+    reservationStatus: 'not_required',
+    notes: '',
+    tags: ['new'],
+    icon: '📍',
+    geo: { lat: 44.6, lng: -110.6 },
+    weights: { joy: 7, uniqueness: 5, effort: 4, timeCost: 4, budgetImpact: 4 }
+  });
+}

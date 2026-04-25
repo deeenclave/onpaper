@@ -1,6 +1,8 @@
 import './styles.css';
 import { dia, shapes, util } from '@joint/core';
-import { yellowstoneSeed } from './seed';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { createQuickNode, yellowstoneSeed } from './seed';
 import { TripNodeData, TripNodeType } from './types';
 import {
   exportAsJson,
@@ -16,13 +18,10 @@ const TYPE_COLORS: Record<TripNodeType, string> = {
   attraction: '#6B8E7A',
   restaurant: '#EDE0D4',
   guided_activity: '#CDB4DB',
-  scenic_point: '#A9D6E5',
-  decision: '#D4A373',
-  fallback: '#CDB4DB'
+  scenic_point: '#7FB6CE',
+  decision: '#C28F5A',
+  fallback: '#B894C7'
 };
-
-const NODE_WIDTH = 260;
-const NODE_HEIGHT = 118;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('No app mount');
@@ -43,28 +42,41 @@ app.innerHTML = `
   </header>
   <section class="filters" id="filters"></section>
   <main class="layout">
-    <aside class="panel" id="stencil-host"><h3>Node Palette</h3><div id="stencil" class="stencil-buttons"></div></aside>
+    <aside class="panel"><h3>Node Palette</h3><div id="stencil" class="stencil-buttons"></div></aside>
     <section class="canvas-shell">
+      <div id="map"></div>
       <div id="paper"></div>
       <div id="minimap"></div>
     </section>
     <aside class="panel">
       <h3>Inspector</h3>
       <div id="inspector"></div>
+      <h3>Trade-off Decision</h3>
+      <div id="decision-panel" class="decision-panel">Select a decision node to compare competing options.</div>
       <h3>Validation Alerts</h3>
       <ul class="issues" id="issues"></ul>
     </aside>
   </main>
 </div>`;
 
+const map = L.map('map', {
+  zoomControl: true,
+  attributionControl: true
+}).setView([44.6, -110.6], 9);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
 const graph = new dia.Graph({}, { cellNamespace: shapes });
 const paper = new dia.Paper({
   model: graph,
   el: document.getElementById('paper') as HTMLElement,
   width: '100%',
-  height: 1000,
-  gridSize: 16,
-  drawGrid: { name: 'mesh' },
+  height: 1200,
+  gridSize: 1,
+  drawGrid: false,
   async: true,
   cellViewNamespace: shapes,
   defaultConnectionPoint: { name: 'boundary' },
@@ -79,8 +91,8 @@ const paper = new dia.Paper({
       }
     }),
   linkPinning: false,
-  background: { color: '#F7F5F2' },
-  interactive: (cellView) => !cellView.model.get('isLane')
+  background: { color: 'transparent' },
+  interactive: (cellView) => !cellView.model.get('isLane') && !cellView.model.get('isDecoration')
 });
 
 const miniPaper = new dia.Paper({
@@ -91,56 +103,42 @@ const miniPaper = new dia.Paper({
   interactive: false,
   async: true,
   cellViewNamespace: shapes,
-  background: { color: '#FFFFFF' }
+  background: { color: '#FFFFFFCC' }
 });
-miniPaper.scale(0.12);
-
-paper.on('blank:mousewheel', (_evt, _x, _y, delta) => {
-  const scale = paper.scale();
-  const next = util.clamp(scale.sx + delta * 0.1, 0.3, 2);
-  paper.scale(next, next);
-});
-
-let panning = false;
-let panOrigin = { x: 0, y: 0 };
-paper.on('blank:pointerdown', (_evt, x, y) => {
-  panning = true;
-  panOrigin = { x, y };
-});
-paper.on('cell:pointerup blank:pointerup', () => {
-  panning = false;
-});
-paper.on('blank:pointermove', (_evt, x, y) => {
-  if (!panning) return;
-  const tx = paper.translate().tx + (x - panOrigin.x);
-  const ty = paper.translate().ty + (y - panOrigin.y);
-  paper.translate(tx, ty);
-  panOrigin = { x, y };
-});
+miniPaper.scale(0.11);
 
 const nodeCellsById = new Map<string, { card: shapes.standard.Rectangle; strip: shapes.standard.Rectangle }>();
 const laneCells = new Map<number, shapes.standard.Rectangle>();
 
-function laneForDay(day: number, y: number): shapes.standard.Rectangle {
+function isWarmNode(node: TripNodeData): boolean {
+  return node.weights.joy >= 8;
+}
+
+function cardFill(node: TripNodeData): string {
+  if (node.optional) return '#FFFFFF99';
+  return isWarmNode(node) ? '#FFF7EE' : '#F4FAF8';
+}
+
+function laneForDay(day: number): shapes.standard.Rectangle {
   const lane = new shapes.standard.Rectangle({
     id: `lane-${day}`,
-    position: { x: 20, y },
-    size: { width: 1860, height: 180 },
+    position: { x: 12, y: day * 12 },
+    size: { width: 1880, height: 230 },
     isLane: true,
     attrs: {
       body: {
-        fill: '#FFFFFFC8',
-        stroke: '#EDE0D4',
-        rx: 16,
-        ry: 16,
-        strokeWidth: 1
+        fill: '#FFFFFF58',
+        stroke: '#FFFFFF90',
+        strokeWidth: 2,
+        rx: 18,
+        ry: 18
       },
       label: {
         text: `Day ${day}`,
         fill: '#1F1F1F',
         textAnchor: 'left',
         refX: 18,
-        refY: 20,
+        refY: 18,
         fontSize: 14,
         fontWeight: 700
       }
@@ -151,22 +149,39 @@ function laneForDay(day: number, y: number): shapes.standard.Rectangle {
   return lane;
 }
 
-function createTravelNode(node: TripNodeData, x: number, y: number) {
-  const fill = node.optional ? '#FFFFFFA0' : '#FFFFFF';
+function nodePositionFromGeo(node: TripNodeData) {
+  const point = map.latLngToContainerPoint([node.geo.lat, node.geo.lng]);
+  return { x: point.x - 130, y: point.y - 55 };
+}
+
+function refreshNodeGeo(nodeId: string) {
+  const bundle = nodeCellsById.get(nodeId);
+  const node = yellowstoneSeed.nodes.find((n) => n.id === nodeId);
+  if (!bundle || !node) return;
+  const centerPoint = {
+    x: bundle.card.position().x + bundle.card.size().width / 2,
+    y: bundle.card.position().y + bundle.card.size().height / 2
+  };
+  const latLng = map.containerPointToLatLng([centerPoint.x, centerPoint.y]);
+  node.geo = { lat: latLng.lat, lng: latLng.lng };
+}
+
+function createTravelNode(node: TripNodeData) {
+  const position = nodePositionFromGeo(node);
   const card = new shapes.standard.Rectangle({
     id: node.id,
-    position: { x, y },
-    size: { width: NODE_WIDTH, height: NODE_HEIGHT },
+    position,
+    size: { width: 260, height: 116 },
     attrs: {
       body: {
-        fill,
+        fill: cardFill(node),
         stroke: '#EDE0D4',
-        strokeWidth: 1.2,
+        strokeWidth: 1.3,
         rx: 14,
         ry: 14
       },
       label: {
-        text: `${node.icon} ${node.title}\n${node.timeWindow} · ${node.duration}\n${node.location}`,
+        text: `${node.icon} ${node.title}\n${node.timeWindow} · ${node.duration}\n${node.location}\n🌟${node.weights.joy}  💸${node.weights.budgetImpact}  🚶${node.weights.effort}`,
         fill: '#1F1F1F',
         fontSize: 12,
         fontFamily: 'Inter, ui-sans-serif',
@@ -182,8 +197,8 @@ function createTravelNode(node: TripNodeData, x: number, y: number) {
 
   const strip = new shapes.standard.Rectangle({
     id: `${node.id}-strip`,
-    position: { x: x + 2, y: y + 2 },
-    size: { width: 8, height: NODE_HEIGHT - 4 },
+    position: { x: position.x + 2, y: position.y + 2 },
+    size: { width: 8, height: 112 },
     isDecoration: true,
     attrs: {
       body: {
@@ -207,9 +222,9 @@ function createLink(source: string, target: string, label?: string, critical?: b
     target: { id: target },
     attrs: {
       line: {
-        stroke: critical ? '#D4A373' : '#B0B0B0',
-        strokeWidth: critical ? 2.5 : 1.4,
-        strokeDasharray: critical ? '0' : '5 3',
+        stroke: critical ? '#D4A373' : '#9FB4C5',
+        strokeWidth: critical ? 2.6 : 1.5,
+        strokeDasharray: critical ? '0' : '4 3',
         targetMarker: {
           type: 'path',
           d: 'M 10 -5 0 0 10 5 z'
@@ -222,7 +237,7 @@ function createLink(source: string, target: string, label?: string, critical?: b
             position: 0.5,
             attrs: {
               text: { text: label, fill: '#1F1F1F', fontSize: 11 },
-              rect: { fill: '#F7F5F2', stroke: '#EDE0D4', rx: 10, ry: 10 }
+              rect: { fill: '#F7F5F2EE', stroke: '#EDE0D4', rx: 10, ry: 10 }
             }
           }
         ]
@@ -236,21 +251,67 @@ function renderGraph() {
   nodeCellsById.clear();
   laneCells.clear();
 
-  yellowstoneSeed.days.forEach((day, index) => {
-    const laneY = 30 + index * 220;
-    const lane = laneForDay(day.day, laneY);
-    lane.attr('label/text', `Day ${day.day} · ${day.title} · ${day.date}`);
+  yellowstoneSeed.days.forEach((day) => {
+    const lane = laneForDay(day.day);
+    lane.attr('label/text', `Day ${day.day} · ${day.title}`);
     laneCells.set(day.day, lane);
-
-    const dayNodes = yellowstoneSeed.nodes.filter((n) => n.day === day.day);
-    dayNodes.forEach((node, nodeIndex) => {
-      const x = 60 + nodeIndex * 290;
-      const y = laneY + 44;
-      createTravelNode(node, x, y);
-    });
   });
 
-  yellowstoneSeed.edges.forEach((e) => createLink(e.source, e.target, e.label, e.critical));
+  yellowstoneSeed.nodes.forEach((node) => createTravelNode(node));
+  yellowstoneSeed.edges.forEach((edge) => createLink(edge.source, edge.target, edge.label, edge.critical));
+}
+
+function updateGeoAnchoredLayout() {
+  yellowstoneSeed.nodes.forEach((node) => {
+    const bundle = nodeCellsById.get(node.id);
+    if (!bundle) return;
+    const pos = nodePositionFromGeo(node);
+    bundle.card.position(pos.x, pos.y);
+    bundle.strip.position(pos.x + 2, pos.y + 2);
+  });
+}
+
+function normalizeScore(value: number): number {
+  return Math.max(0, Math.min(10, Number(value.toFixed(1))));
+}
+
+function decisionComparison(decisionNodeId: string): string {
+  const options = yellowstoneSeed.edges
+    .filter((e) => e.source === decisionNodeId)
+    .map((edge) => yellowstoneSeed.nodes.find((n) => n.id === edge.target))
+    .filter((n): n is TripNodeData => Boolean(n));
+
+  if (options.length < 2) return 'This decision node needs at least two outgoing options.';
+
+  const scored = options.map((option) => {
+    const score = normalizeScore(
+      option.weights.joy * 0.35 +
+        option.weights.uniqueness * 0.25 -
+        option.weights.timeCost * 0.15 -
+        option.weights.budgetImpact * 0.15 -
+        option.weights.effort * 0.1 +
+        4.5
+    );
+    return { option, score };
+  });
+
+  const recommended = scored.reduce((best, current) => (current.score > best.score ? current : best));
+
+  return `
+    <div class="decision-grid">
+      ${scored
+        .map(
+          ({ option, score }) => `
+        <article class="decision-card ${recommended.option.id === option.id ? 'recommended' : ''}">
+          <h4>${option.icon} ${option.title}</h4>
+          <p>Score: <strong>${score}/10</strong></p>
+          <p>🌟 ${option.weights.joy} · ⏱️ ${option.weights.timeCost} · 💸 ${option.weights.budgetImpact} · 🚶 ${option.weights.effort} · 🎲 ${option.weights.uniqueness}</p>
+        </article>`
+        )
+        .join('')}
+    </div>
+    <p class="decision-note">Recommended now: <strong>${recommended.option.title}</strong> based on current weighted trade-offs.</p>
+  `;
 }
 
 function refreshMetricsAndIssues() {
@@ -261,34 +322,14 @@ function refreshMetricsAndIssues() {
     <div class="metric"><span>Total Cost</span><strong>${summary.totalCost} EUR</strong></div>
     <div class="metric"><span>Activities</span><strong>${summary.totalActivities}</strong></div>
     <div class="metric"><span>Total Duration</span><strong>${summary.totalDurationHours}h</strong></div>
-    <div class="metric"><span>Alerts</span><strong>${summary.issues}</strong></div>`;
+    <div class="metric"><span>Alerts</span><strong>${summary.issues}</strong></div>
+    <div class="metric"><span>Trip Score</span><strong>${summary.tripScore}/10</strong></div>
+    <div class="metric"><span>Joy / Effort</span><strong>${summary.joyAverage} / ${summary.effortAverage}</strong></div>`;
 
   const issuesEl = document.getElementById('issues') as HTMLElement;
   issuesEl.innerHTML = issues
     .map((i) => `<li class="${i.severity}"><strong>${i.severity.toUpperCase()}</strong> ${i.message}</li>`)
     .join('');
-}
-
-function addQuickNode(type: TripNodeType) {
-  const id = `custom-${Math.random().toString(36).slice(2, 9)}`;
-  const data: TripNodeData = {
-    id,
-    title: `${type.replace('_', ' ')} node`,
-    category: type,
-    day: 1,
-    timeWindow: '09:00–10:00',
-    duration: '1h',
-    location: 'Custom location',
-    cost: 0,
-    priority: 'medium',
-    reservationStatus: 'not_required',
-    notes: '',
-    tags: ['new'],
-    icon: '📍'
-  };
-  yellowstoneSeed.nodes.push(data);
-  renderGraph();
-  refreshMetricsAndIssues();
 }
 
 function renderStencil() {
@@ -299,9 +340,29 @@ function renderStencil() {
     button.className = 'stencil-btn';
     button.style.borderColor = TYPE_COLORS[type];
     button.textContent = `+ ${type.replace('_', ' ')}`;
-    button.addEventListener('click', () => addQuickNode(type));
+    button.addEventListener('click', () => {
+      const id = `custom-${Math.random().toString(36).slice(2, 9)}`;
+      const center = map.getCenter();
+      const newNode = createQuickNode(type, id);
+      newNode.geo = { lat: center.lat, lng: center.lng };
+      yellowstoneSeed.nodes.push(newNode);
+      renderGraph();
+      refreshMetricsAndIssues();
+      pulseNode(id);
+    });
     stencilHost.appendChild(button);
   });
+}
+
+function pulseNode(id: string) {
+  const bundle = nodeCellsById.get(id);
+  if (!bundle) return;
+  bundle.card.attr('body/strokeWidth', 3);
+  bundle.card.attr('body/stroke', '#D4A373');
+  setTimeout(() => {
+    bundle.card.attr('body/strokeWidth', 1.3);
+    bundle.card.attr('body/stroke', '#EDE0D4');
+  }, 650);
 }
 
 function renderFilters() {
@@ -343,15 +404,16 @@ function renderFilters() {
     collapsed = !collapsed;
     yellowstoneSeed.days.forEach((day) => {
       const lane = laneCells.get(day.day);
-      lane?.resize(lane.size().width, collapsed ? 46 : 180);
-      yellowstoneSeed.nodes
-        .filter((node) => node.day === day.day)
-        .forEach((node) => {
-          const bundle = nodeCellsById.get(node.id);
-          bundle?.card.attr('root/display', collapsed ? 'none' : 'block');
-          bundle?.strip.attr('root/display', collapsed ? 'none' : 'block');
-        });
+      lane?.attr('root/display', collapsed ? 'none' : 'block');
     });
+  });
+}
+
+function syncDragToMap() {
+  paper.on('element:pointerup', (cellView) => {
+    const id = cellView.model.id.toString();
+    if (!yellowstoneSeed.nodes.find((n) => n.id === id)) return;
+    refreshNodeGeo(id);
   });
 }
 
@@ -360,6 +422,11 @@ function attachInspector() {
     const id = cellView.model.id.toString();
     const data = yellowstoneSeed.nodes.find((n) => n.id === id);
     if (!data) return;
+
+    const decisionPanel = document.getElementById('decision-panel') as HTMLElement;
+    if (data.category === 'decision') {
+      decisionPanel.innerHTML = decisionComparison(data.id);
+    }
 
     const inspectorEl = document.getElementById('inspector') as HTMLElement;
     inspectorEl.innerHTML = `
@@ -375,11 +442,15 @@ function attachInspector() {
         <div class="form-field"><label>Time Window</label><input id="ins-time" value="${data.timeWindow}"/></div>
         <div class="form-field"><label>Duration</label><input id="ins-duration" value="${data.duration}"/></div>
       </div>
-      <div class="form-field"><label>Reservation</label><select id="ins-reservation">
-      ${['required', 'booked', 'pending', 'not_required']
-        .map((s) => `<option value="${s}" ${data.reservationStatus === s ? 'selected' : ''}>${s}</option>`)
-        .join('')}</select></div>
-      <div class="form-field"><label>Notes</label><textarea id="ins-notes">${data.notes}</textarea></div>
+      <div class="form-grid">
+        <div class="form-field"><label>Joy</label><input id="ins-joy" type="number" min="0" max="10" value="${data.weights.joy}"/></div>
+        <div class="form-field"><label>Uniqueness</label><input id="ins-uniq" type="number" min="0" max="10" value="${data.weights.uniqueness}"/></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-field"><label>Time Cost</label><input id="ins-time-cost" type="number" min="0" max="10" value="${data.weights.timeCost}"/></div>
+        <div class="form-field"><label>Effort</label><input id="ins-effort" type="number" min="0" max="10" value="${data.weights.effort}"/></div>
+      </div>
+      <div class="form-field"><label>Budget Impact</label><input id="ins-budget" type="number" min="0" max="10" value="${data.weights.budgetImpact}"/></div>
       <button id="ins-save">Save node</button>`;
 
     document.getElementById('ins-save')?.addEventListener('click', () => {
@@ -389,8 +460,11 @@ function attachInspector() {
       data.cost = Number((document.getElementById('ins-cost') as HTMLInputElement).value);
       data.timeWindow = (document.getElementById('ins-time') as HTMLInputElement).value;
       data.duration = (document.getElementById('ins-duration') as HTMLInputElement).value;
-      data.reservationStatus = (document.getElementById('ins-reservation') as HTMLSelectElement).value as TripNodeData['reservationStatus'];
-      data.notes = (document.getElementById('ins-notes') as HTMLTextAreaElement).value;
+      data.weights.joy = Number((document.getElementById('ins-joy') as HTMLInputElement).value);
+      data.weights.uniqueness = Number((document.getElementById('ins-uniq') as HTMLInputElement).value);
+      data.weights.timeCost = Number((document.getElementById('ins-time-cost') as HTMLInputElement).value);
+      data.weights.effort = Number((document.getElementById('ins-effort') as HTMLInputElement).value);
+      data.weights.budgetImpact = Number((document.getElementById('ins-budget') as HTMLInputElement).value);
       renderGraph();
       refreshMetricsAndIssues();
     });
@@ -426,4 +500,20 @@ renderStencil();
 renderFilters();
 refreshMetricsAndIssues();
 attachInspector();
+syncDragToMap();
 wireExportButtons();
+
+map.on('move zoom', () => {
+  updateGeoAnchoredLayout();
+});
+
+window.setTimeout(() => {
+  map.invalidateSize();
+  updateGeoAnchoredLayout();
+}, 150);
+
+paper.on('blank:mousewheel', (_evt, _x, _y, delta) => {
+  const scale = paper.scale();
+  const next = util.clamp(scale.sx + delta * 0.1, 0.5, 1.6);
+  paper.scale(next, next);
+});

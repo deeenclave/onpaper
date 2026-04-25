@@ -94,14 +94,34 @@ export function validatePlan(plan: TripPlan): PlannerValidationIssue[] {
   return issues;
 }
 
+export function computeTripScore(plan: TripPlan): number {
+  if (!plan.nodes.length) return 0;
+  const sum = plan.nodes.reduce((acc, node) => {
+    const positive = node.weights.joy * 0.4 + node.weights.uniqueness * 0.35;
+    const drag = node.weights.timeCost * 0.1 + node.weights.effort * 0.1 + node.weights.budgetImpact * 0.05;
+    return acc + (positive - drag);
+  }, 0);
+  return Number((sum / plan.nodes.length).toFixed(2));
+}
+
 export function summarizePlan(plan: TripPlan, issues: PlannerValidationIssue[]) {
   const totalCost = plan.nodes.reduce((sum, node) => sum + node.cost, 0);
   const totalDurationHours = plan.nodes.reduce((sum, node) => sum + parseDurationHours(node.duration), 0);
+  const joyAverage = Number(
+    (plan.nodes.reduce((sum, node) => sum + node.weights.joy, 0) / Math.max(plan.nodes.length, 1)).toFixed(1)
+  );
+  const effortAverage = Number(
+    (plan.nodes.reduce((sum, node) => sum + node.weights.effort, 0) / Math.max(plan.nodes.length, 1)).toFixed(1)
+  );
+
   return {
     totalCost,
     totalActivities: plan.nodes.length,
     totalDurationHours: Number(totalDurationHours.toFixed(1)),
-    issues: issues.length
+    issues: issues.length,
+    tripScore: computeTripScore(plan),
+    joyAverage,
+    effortAverage
   };
 }
 
@@ -131,6 +151,7 @@ export function exportAsMarkdown(plan: TripPlan, issues: PlannerValidationIssue[
   lines.push(`**Travelers:** ${plan.travelers} people`);
   lines.push(`**Total Cost:** ${summary.totalCost} ${plan.currency}`);
   lines.push(`**Activities:** ${summary.totalActivities}`);
+  lines.push(`**Trip Score:** ${summary.tripScore}`);
   lines.push('');
 
   for (const day of plan.days) {
@@ -139,7 +160,7 @@ export function exportAsMarkdown(plan: TripPlan, issues: PlannerValidationIssue[
       .filter((node) => node.day === day.day)
       .forEach((node: TripNodeData) => {
         lines.push(
-          `- ${node.icon} **${node.title}** (${node.category}) · ${node.timeWindow} · ${node.duration} · ${node.location} · ${node.cost} ${plan.currency}`
+          `- ${node.icon} **${node.title}** (${node.category}) · ${node.timeWindow} · ${node.duration} · ${node.location} · ${node.cost} ${plan.currency} · joy ${node.weights.joy}/10`
         );
       });
     lines.push('');
@@ -165,7 +186,7 @@ export function exportPrintableFamilyView(plan: TripPlan): string {
   for (const day of plan.days) {
     lines.push(`Day ${day.day}: ${day.title}`);
     for (const node of plan.nodes.filter((n) => n.day === day.day)) {
-      lines.push(`• ${node.timeWindow} ${node.title} (${node.duration})`);
+      lines.push(`• ${node.timeWindow} ${node.title} (${node.duration}) · joy ${node.weights.joy}/10`);
     }
     lines.push('');
   }
