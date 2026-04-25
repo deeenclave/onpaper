@@ -206,3 +206,13 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+.stencil-buttons {
+  display: grid;
+  gap: 8px;
+}
+
+.stencil-btn {
+  width: 100%;
+  justify-content: flex-start;
+}

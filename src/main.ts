@@ -1,5 +1,5 @@
 import './styles.css';
-import { dia, shapes, ui, util } from '@joint/core';
+import { dia, shapes, util } from '@joint/core';
 import { yellowstoneSeed } from './seed';
 import { TripNodeData, TripNodeType } from './types';
 import {
@@ -23,6 +23,7 @@ const TYPE_COLORS: Record<TripNodeType, string> = {
 
 const NODE_WIDTH = 260;
 const NODE_HEIGHT = 118;
+
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('No app mount');
 
@@ -42,7 +43,7 @@ app.innerHTML = `
   </header>
   <section class="filters" id="filters"></section>
   <main class="layout">
-    <aside class="panel" id="stencil-host"><h3>Node Palette</h3><div id="stencil"></div></aside>
+    <aside class="panel" id="stencil-host"><h3>Node Palette</h3><div id="stencil" class="stencil-buttons"></div></aside>
     <section class="canvas-shell">
       <div id="paper"></div>
       <div id="minimap"></div>
@@ -67,10 +68,32 @@ const paper = new dia.Paper({
   async: true,
   cellViewNamespace: shapes,
   defaultConnectionPoint: { name: 'boundary' },
+  defaultLink: () =>
+    new shapes.standard.Link({
+      attrs: {
+        line: {
+          stroke: '#B0B0B0',
+          strokeWidth: 1.5,
+          targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' }
+        }
+      }
+    }),
   linkPinning: false,
   background: { color: '#F7F5F2' },
   interactive: (cellView) => !cellView.model.get('isLane')
 });
+
+const miniPaper = new dia.Paper({
+  model: graph,
+  el: document.getElementById('minimap') as HTMLElement,
+  width: 240,
+  height: 160,
+  interactive: false,
+  async: true,
+  cellViewNamespace: shapes,
+  background: { color: '#FFFFFF' }
+});
+miniPaper.scale(0.12);
 
 paper.on('blank:mousewheel', (_evt, _x, _y, delta) => {
   const scale = paper.scale();
@@ -78,36 +101,29 @@ paper.on('blank:mousewheel', (_evt, _x, _y, delta) => {
   paper.scale(next, next);
 });
 
+let panning = false;
+let panOrigin = { x: 0, y: 0 };
 paper.on('blank:pointerdown', (_evt, x, y) => {
-  paper.translate(-x + 120, -y + 120);
+  panning = true;
+  panOrigin = { x, y };
+});
+paper.on('cell:pointerup blank:pointerup', () => {
+  panning = false;
+});
+paper.on('blank:pointermove', (_evt, x, y) => {
+  if (!panning) return;
+  const tx = paper.translate().tx + (x - panOrigin.x);
+  const ty = paper.translate().ty + (y - panOrigin.y);
+  paper.translate(tx, ty);
+  panOrigin = { x, y };
 });
 
-const paperScroller = new ui.PaperScroller({
-  paper,
-  autoResizePaper: true,
-  cursor: 'grab'
-});
-(document.getElementById('paper') as HTMLElement).appendChild(paperScroller.el);
-paperScroller.render().center();
+const nodeCellsById = new Map<string, { card: shapes.standard.Rectangle; strip: shapes.standard.Rectangle }>();
+const laneCells = new Map<number, shapes.standard.Rectangle>();
 
-const minimap = new ui.Navigator({
-  paperScroller,
-  width: 240,
-  height: 160,
-  paperOptions: {
-    async: true,
-    cellViewNamespace: shapes
-  }
-});
-(document.getElementById('minimap') as HTMLElement).appendChild(minimap.el);
-minimap.render();
-
-const nodesById = new Map<string, TripNodeData>();
-const nodeCellsById = new Map<string, shapes.standard.Rectangle>();
-const laneCells = new Map<number, shapes.standard.HeaderedRectangle>();
-
-function laneForDay(day: number, y: number): shapes.standard.HeaderedRectangle {
-  const lane = new shapes.standard.HeaderedRectangle({
+function laneForDay(day: number, y: number): shapes.standard.Rectangle {
+  const lane = new shapes.standard.Rectangle({
+    id: `lane-${day}`,
     position: { x: 20, y },
     size: { width: 1860, height: 180 },
     isLane: true,
@@ -119,14 +135,12 @@ function laneForDay(day: number, y: number): shapes.standard.HeaderedRectangle {
         ry: 16,
         strokeWidth: 1
       },
-      header: {
-        fill: '#EDE0D4',
-        stroke: '#EDE0D4',
-        height: 34
-      },
-      headerText: {
+      label: {
         text: `Day ${day}`,
         fill: '#1F1F1F',
+        textAnchor: 'left',
+        refX: 18,
+        refY: 20,
         fontSize: 14,
         fontWeight: 700
       }
@@ -149,11 +163,7 @@ function createTravelNode(node: TripNodeData, x: number, y: number) {
         stroke: '#EDE0D4',
         strokeWidth: 1.2,
         rx: 14,
-        ry: 14,
-        filter: {
-          name: 'dropShadow',
-          args: { dx: 0, dy: 2, blur: 5, color: '#00000018' }
-        }
+        ry: 14
       },
       label: {
         text: `${node.icon} ${node.title}\n${node.timeWindow} · ${node.duration}\n${node.location}`,
@@ -170,11 +180,11 @@ function createTravelNode(node: TripNodeData, x: number, y: number) {
     nodeData: node
   });
 
-  card.addTo(graph);
-
   const strip = new shapes.standard.Rectangle({
+    id: `${node.id}-strip`,
     position: { x: x + 2, y: y + 2 },
     size: { width: 8, height: NODE_HEIGHT - 4 },
+    isDecoration: true,
     attrs: {
       body: {
         fill: TYPE_COLORS[node.category],
@@ -182,14 +192,13 @@ function createTravelNode(node: TripNodeData, x: number, y: number) {
         rx: 4,
         ry: 4
       }
-    },
-    isDecoration: true
+    }
   });
-  strip.addTo(graph);
-  strip.embed(card);
 
-  nodesById.set(node.id, node);
-  nodeCellsById.set(node.id, card);
+  card.addTo(graph);
+  strip.addTo(graph);
+  card.embed(strip);
+  nodeCellsById.set(node.id, { card, strip });
 }
 
 function createLink(source: string, target: string, label?: string, critical?: boolean) {
@@ -224,14 +233,13 @@ function createLink(source: string, target: string, label?: string, critical?: b
 
 function renderGraph() {
   graph.clear();
-  nodesById.clear();
   nodeCellsById.clear();
   laneCells.clear();
 
   yellowstoneSeed.days.forEach((day, index) => {
     const laneY = 30 + index * 220;
     const lane = laneForDay(day.day, laneY);
-    lane.attr('headerText/text', `Day ${day.day} · ${day.title} · ${day.date}`);
+    lane.attr('label/text', `Day ${day.day} · ${day.title} · ${day.date}`);
     laneCells.set(day.day, lane);
 
     const dayNodes = yellowstoneSeed.nodes.filter((n) => n.day === day.day);
@@ -261,67 +269,38 @@ function refreshMetricsAndIssues() {
     .join('');
 }
 
-function makeStencil() {
-  const stencilGraph = new dia.Graph({}, { cellNamespace: shapes });
-  const stencil = new ui.Stencil({
-    paper,
-    width: 260,
-    height: 500,
-    graph: stencilGraph,
-    usePaperGrid: true,
-    paperOptions: { cellViewNamespace: shapes, model: stencilGraph }
-  });
-  (document.getElementById('stencil') as HTMLElement).appendChild(stencil.el);
-  stencil.render();
+function addQuickNode(type: TripNodeType) {
+  const id = `custom-${Math.random().toString(36).slice(2, 9)}`;
+  const data: TripNodeData = {
+    id,
+    title: `${type.replace('_', ' ')} node`,
+    category: type,
+    day: 1,
+    timeWindow: '09:00–10:00',
+    duration: '1h',
+    location: 'Custom location',
+    cost: 0,
+    priority: 'medium',
+    reservationStatus: 'not_required',
+    notes: '',
+    tags: ['new'],
+    icon: '📍'
+  };
+  yellowstoneSeed.nodes.push(data);
+  renderGraph();
+  refreshMetricsAndIssues();
+}
 
-  const demos = (Object.keys(TYPE_COLORS) as TripNodeType[]).map((type, i) => {
-    return new shapes.standard.Rectangle({
-      size: { width: 220, height: 56 },
-      position: { x: 20, y: 20 + i * 68 },
-      attrs: {
-        body: { fill: '#fff', stroke: TYPE_COLORS[type], strokeWidth: 2, rx: 12, ry: 12 },
-        label: { text: type.replace('_', ' '), fill: '#1F1F1F', fontWeight: 600 }
-      },
-      nodeData: {
-        title: `${type} node`,
-        category: type,
-        timeWindow: '09:00–10:00',
-        duration: '1h',
-        day: 1,
-        location: 'Custom location',
-        cost: 0,
-        priority: 'medium',
-        reservationStatus: 'not_required',
-        notes: '',
-        tags: [],
-        icon: '📍'
-      }
-    });
-  });
-  stencil.load(demos);
-
-  stencil.on('element:drop', (cellView) => {
-    const dropped = cellView.model as shapes.standard.Rectangle;
-    const nodeData = dropped.get('nodeData') as Partial<TripNodeData>;
-    const id = `custom-${Math.random().toString(36).slice(2, 9)}`;
-    const data: TripNodeData = {
-      id,
-      title: nodeData.title || 'New activity',
-      category: (nodeData.category as TripNodeType) || 'attraction',
-      day: 1,
-      timeWindow: '09:00–10:00',
-      duration: '1h',
-      location: 'Custom location',
-      cost: 0,
-      priority: 'medium',
-      reservationStatus: 'not_required',
-      notes: '',
-      tags: [],
-      icon: '📍'
-    };
-    yellowstoneSeed.nodes.push(data);
-    renderGraph();
-    refreshMetricsAndIssues();
+function renderStencil() {
+  const stencilHost = document.getElementById('stencil') as HTMLElement;
+  stencilHost.innerHTML = '';
+  (Object.keys(TYPE_COLORS) as TripNodeType[]).forEach((type) => {
+    const button = document.createElement('button');
+    button.className = 'stencil-btn';
+    button.style.borderColor = TYPE_COLORS[type];
+    button.textContent = `+ ${type.replace('_', ' ')}`;
+    button.addEventListener('click', () => addQuickNode(type));
+    stencilHost.appendChild(button);
   });
 }
 
@@ -341,7 +320,8 @@ function renderFilters() {
   const apply = () => {
     const day = (document.getElementById('day-filter') as HTMLSelectElement).value;
     const category = (document.getElementById('category-filter') as HTMLSelectElement).value;
-    const maxCost = Number((document.getElementById('cost-filter') as HTMLInputElement).value || Infinity);
+    const costInput = (document.getElementById('cost-filter') as HTMLInputElement).value;
+    const maxCost = costInput ? Number(costInput) : Infinity;
     const priority = (document.getElementById('priority-filter') as HTMLSelectElement).value;
 
     yellowstoneSeed.nodes.forEach((node) => {
@@ -350,7 +330,9 @@ function renderFilters() {
         (category === 'all' || node.category === category) &&
         node.cost <= maxCost &&
         (priority === 'all' || node.priority === priority);
-      nodeCellsById.get(node.id)?.attr('root/display', visible ? 'block' : 'none');
+      const bundle = nodeCellsById.get(node.id);
+      bundle?.card.attr('root/display', visible ? 'block' : 'none');
+      bundle?.strip.attr('root/display', visible ? 'block' : 'none');
     });
   };
 
@@ -364,7 +346,11 @@ function renderFilters() {
       lane?.resize(lane.size().width, collapsed ? 46 : 180);
       yellowstoneSeed.nodes
         .filter((node) => node.day === day.day)
-        .forEach((node) => nodeCellsById.get(node.id)?.attr('root/display', collapsed ? 'none' : 'block'));
+        .forEach((node) => {
+          const bundle = nodeCellsById.get(node.id);
+          bundle?.card.attr('root/display', collapsed ? 'none' : 'block');
+          bundle?.strip.attr('root/display', collapsed ? 'none' : 'block');
+        });
     });
   });
 }
@@ -407,7 +393,6 @@ function attachInspector() {
       data.notes = (document.getElementById('ins-notes') as HTMLTextAreaElement).value;
       renderGraph();
       refreshMetricsAndIssues();
-      attachInspector();
     });
   });
 }
@@ -437,7 +422,7 @@ function wireExportButtons() {
 }
 
 renderGraph();
-makeStencil();
+renderStencil();
 renderFilters();
 refreshMetricsAndIssues();
 attachInspector();
