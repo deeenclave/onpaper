@@ -22,7 +22,6 @@ type MapAdapter = {
 };
 
 class FallbackMapAdapter implements MapAdapter {
-  private center: LatLng = { lat: 44.6, lng: -110.6 };
   private readonly host: HTMLElement;
   private readonly handlers: Record<string, Array<() => void>> = {};
 
@@ -36,34 +35,36 @@ class FallbackMapAdapter implements MapAdapter {
     this.handlers[event].push(handler);
   }
 
-  emit(event: string) {
+  private emit(event: string) {
     (this.handlers[event] || []).forEach((h) => h());
   }
 
   getCenter() {
-    return this.center;
+    return { lat: 44.6, lng: -110.6 };
   }
 
-  latLngToContainerPoint(coords: [number, number]) {
+  latLngToContainerPoint([lat, lng]: [number, number]) {
     const rect = this.host.getBoundingClientRect();
     const latMin = 44.0;
     const latMax = 45.1;
     const lngMin = -111.2;
     const lngMax = -110.0;
-    const x = ((coords[1] - lngMin) / (lngMax - lngMin)) * rect.width;
-    const y = ((latMax - coords[0]) / (latMax - latMin)) * rect.height;
-    return { x, y };
+    return {
+      x: ((lng - lngMin) / (lngMax - lngMin)) * rect.width,
+      y: ((latMax - lat) / (latMax - latMin)) * rect.height
+    };
   }
 
-  containerPointToLatLng(point: [number, number]) {
+  containerPointToLatLng([x, y]: [number, number]) {
     const rect = this.host.getBoundingClientRect();
     const latMin = 44.0;
     const latMax = 45.1;
     const lngMin = -111.2;
     const lngMax = -110.0;
-    const lng = lngMin + (point[0] / rect.width) * (lngMax - lngMin);
-    const lat = latMax - (point[1] / rect.height) * (latMax - latMin);
-    return { lat, lng };
+    return {
+      lat: latMax - (y / rect.height) * (latMax - latMin),
+      lng: lngMin + (x / rect.width) * (lngMax - lngMin)
+    };
   }
 
   invalidateSize() {
@@ -73,7 +74,6 @@ class FallbackMapAdapter implements MapAdapter {
 }
 
 async function createMapAdapter(hostId: string): Promise<MapAdapter> {
-  const mapEl = document.getElementById(hostId) as HTMLElement;
   try {
     const leafletModule = 'leaflet';
     const leafletCssModule = 'leaflet/dist/leaflet.css';
@@ -85,7 +85,6 @@ async function createMapAdapter(hostId: string): Promise<MapAdapter> {
       maxZoom: 18,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
-
     return {
       on: (event, handler) => map.on(event, handler),
       getCenter: () => {
@@ -102,8 +101,8 @@ async function createMapAdapter(hostId: string): Promise<MapAdapter> {
       },
       invalidateSize: () => map.invalidateSize()
     };
-  } catch (_err) {
-    return new FallbackMapAdapter(mapEl);
+  } catch {
+    return new FallbackMapAdapter(document.getElementById(hostId) as HTMLElement);
   }
 }
 
@@ -122,34 +121,45 @@ const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('No app mount');
 
 app.innerHTML = `
-<div class="journey-app">
-  <header class="summary-bar">
+<div class="journey-app clean-ui">
+  <header class="summary-bar compact">
     <div>
       <h1>JourneyGraph</h1>
-      <p>${yellowstoneSeed.title} · ${yellowstoneSeed.dates}</p>
+      <p>${yellowstoneSeed.title}</p>
     </div>
     <div class="metrics" id="metrics"></div>
     <div class="actions">
-      <button id="export-json">Export JSON</button>
-      <button id="export-md">Export Markdown</button>
-      <button id="export-print">Printable View</button>
+      <button id="export-json">JSON</button>
+      <button id="export-md">Markdown</button>
+      <button id="export-print">Print</button>
     </div>
   </header>
-  <section class="filters" id="filters"></section>
-  <main class="layout">
-    <aside class="panel"><h3>Node Palette</h3><div id="stencil" class="stencil-buttons"></div></aside>
+
+  <section class="filters clean-filters" id="filters"></section>
+
+  <main class="layout clean-layout">
+    <aside class="panel panel-compact">
+      <h3>Add Node</h3>
+      <div id="stencil" class="stencil-buttons"></div>
+    </aside>
+
     <section class="canvas-shell">
       <div id="map"></div>
       <div id="paper"></div>
       <div id="minimap"></div>
     </section>
-    <aside class="panel">
-      <h3>Inspector</h3>
-      <div id="inspector"></div>
-      <h3>Trade-off Decision</h3>
-      <div id="decision-panel" class="decision-panel">Select a decision node to compare competing options.</div>
-      <h3>Validation Alerts</h3>
-      <ul class="issues" id="issues"></ul>
+
+    <aside class="panel panel-compact">
+      <h3>Details</h3>
+      <div id="inspector" class="empty-state">Select a node to edit details.</div>
+      <details id="issues-wrap">
+        <summary>Planner alerts <span id="alert-count"></span></summary>
+        <ul class="issues" id="issues"></ul>
+      </details>
+      <details id="decision-wrap">
+        <summary>Trade-off comparator</summary>
+        <div id="decision-panel" class="decision-panel">Select a decision node to compare options.</div>
+      </details>
     </aside>
   </main>
 </div>`;
@@ -158,7 +168,6 @@ void bootstrap();
 
 async function bootstrap() {
   const map = await createMapAdapter('map');
-
   const graph = new dia.Graph({}, { cellNamespace: shapes });
   const paper = new dia.Paper({
     model: graph,
@@ -170,317 +179,281 @@ async function bootstrap() {
     async: true,
     cellViewNamespace: shapes,
     defaultConnectionPoint: { name: 'boundary' },
-    defaultLink: () =>
-      new shapes.standard.Link({
-        attrs: {
-          line: {
-            stroke: '#B0B0B0',
-            strokeWidth: 1.5,
-            targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' }
-          }
-        }
-      }),
     linkPinning: false,
     background: { color: 'transparent' },
-    interactive: (cellView) => !cellView.model.get('isLane') && !cellView.model.get('isDecoration')
+    interactive: (cv) => !cv.model.get('isDecoration')
   });
 
-  const miniPaper = new dia.Paper({
+  new dia.Paper({
     model: graph,
     el: document.getElementById('minimap') as HTMLElement,
-    width: 240,
-    height: 160,
+    width: 200,
+    height: 130,
     interactive: false,
     async: true,
     cellViewNamespace: shapes,
     background: { color: '#FFFFFFCC' }
-  });
-  miniPaper.scale(0.11);
+  }).scale(0.1);
 
-  const nodeCellsById = new Map<string, { card: shapes.standard.Rectangle; strip: shapes.standard.Rectangle }>();
-  const laneCells = new Map<number, shapes.standard.Rectangle>();
-
-  const isWarmNode = (node: TripNodeData) => node.weights.joy >= 8;
-  const cardFill = (node: TripNodeData) => (node.optional ? '#FFFFFF99' : isWarmNode(node) ? '#FFF7EE' : '#F4FAF8');
-
-  const laneForDay = (day: number) => {
-    const lane = new shapes.standard.Rectangle({
-      id: `lane-${day}`,
-      position: { x: 12, y: day * 12 },
-      size: { width: 1880, height: 230 },
-      isLane: true,
-      attrs: {
-        body: { fill: '#FFFFFF58', stroke: '#FFFFFF90', strokeWidth: 2, rx: 18, ry: 18 },
-        label: { text: `Day ${day}`, fill: '#1F1F1F', textAnchor: 'left', refX: 18, refY: 18, fontSize: 14, fontWeight: 700 }
-      }
-    });
-    lane.addTo(graph);
-    lane.toBack();
-    return lane;
+  const state = {
+    day: 1 as number | 'all',
+    category: 'all' as TripNodeType | 'all',
+    maxCost: Infinity,
+    priority: 'all' as 'all' | 'high' | 'medium' | 'low'
   };
 
-  const nodePositionFromGeo = (node: TripNodeData) => {
-    const point = map.latLngToContainerPoint([node.geo.lat, node.geo.lng]);
-    return { x: point.x - 130, y: point.y - 55 };
+  const nodeViews = new Map<string, { card: shapes.standard.Rectangle; strip: shapes.standard.Rectangle }>();
+
+  const positionFor = (node: TripNodeData) => {
+    const p = map.latLngToContainerPoint([node.geo.lat, node.geo.lng]);
+    return { x: p.x - 120, y: p.y - 44 };
   };
 
-  const refreshNodeGeo = (nodeId: string) => {
-    const bundle = nodeCellsById.get(nodeId);
-    const node = yellowstoneSeed.nodes.find((n) => n.id === nodeId);
-    if (!bundle || !node) return;
-    const centerPoint: [number, number] = [
-      bundle.card.position().x + bundle.card.size().width / 2,
-      bundle.card.position().y + bundle.card.size().height / 2
-    ];
-    node.geo = map.containerPointToLatLng(centerPoint);
+  const nodeIsVisible = (node: TripNodeData) => {
+    return (
+      (state.day === 'all' || node.day === state.day) &&
+      (state.category === 'all' || node.category === state.category) &&
+      node.cost <= state.maxCost &&
+      (state.priority === 'all' || node.priority === state.priority)
+    );
   };
 
-  const createTravelNode = (node: TripNodeData) => {
-    const position = nodePositionFromGeo(node);
+  const renderNode = (node: TripNodeData) => {
+    const pos = positionFor(node);
     const card = new shapes.standard.Rectangle({
       id: node.id,
-      position,
-      size: { width: 260, height: 116 },
+      position: pos,
+      size: { width: 240, height: 92 },
       attrs: {
-        body: { fill: cardFill(node), stroke: '#EDE0D4', strokeWidth: 1.3, rx: 14, ry: 14 },
+        body: {
+          fill: node.weights.joy >= 8 ? '#FFF7EE' : '#F4FAF8',
+          stroke: '#E6D8CA',
+          strokeWidth: 1,
+          rx: 12,
+          ry: 12
+        },
         label: {
-          text: `${node.icon} ${node.title}\n${node.timeWindow} · ${node.duration}\n${node.location}\n🌟${node.weights.joy}  💸${node.weights.budgetImpact}  🚶${node.weights.effort}`,
-          fill: '#1F1F1F',
+          text: `${node.icon} ${node.title}\n${node.timeWindow} · ${node.duration} · 🌟${node.weights.joy}`,
           fontSize: 12,
-          fontFamily: 'Inter, ui-sans-serif',
-          textVerticalAnchor: 'top',
+          fill: '#1F1F1F',
           textAnchor: 'left',
-          refX: 16,
-          refY: 10,
-          whiteSpace: 'normal'
+          textVerticalAnchor: 'top',
+          refX: 14,
+          refY: 10
         }
-      },
-      nodeData: node
+      }
     });
 
     const strip = new shapes.standard.Rectangle({
       id: `${node.id}-strip`,
-      position: { x: position.x + 2, y: position.y + 2 },
-      size: { width: 8, height: 112 },
+      position: { x: pos.x + 2, y: pos.y + 2 },
+      size: { width: 6, height: 88 },
       isDecoration: true,
-      attrs: { body: { fill: TYPE_COLORS[node.category], stroke: 'transparent', rx: 4, ry: 4 } }
+      attrs: {
+        body: { fill: TYPE_COLORS[node.category], stroke: 'transparent', rx: 4, ry: 4 }
+      }
     });
 
     card.addTo(graph);
     strip.addTo(graph);
     card.embed(strip);
-    nodeCellsById.set(node.id, { card, strip });
+    nodeViews.set(node.id, { card, strip });
+
+    const visible = nodeIsVisible(node);
+    card.attr('root/display', visible ? 'block' : 'none');
+    strip.attr('root/display', visible ? 'block' : 'none');
   };
 
-  const createLink = (source: string, target: string, label?: string, critical?: boolean) => {
-    new shapes.standard.Link({
-      source: { id: source },
-      target: { id: target },
-      attrs: {
-        line: {
-          stroke: critical ? '#D4A373' : '#9FB4C5',
-          strokeWidth: critical ? 2.6 : 1.5,
-          strokeDasharray: critical ? '0' : '4 3',
-          targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' }
+  const renderLinks = () => {
+    yellowstoneSeed.edges.forEach((edge) => {
+      new shapes.standard.Link({
+        source: { id: edge.source },
+        target: { id: edge.target },
+        attrs: {
+          line: {
+            stroke: edge.critical ? '#D4A373' : '#B8C8D2',
+            strokeWidth: edge.critical ? 2.3 : 1.3,
+            strokeDasharray: edge.critical ? '0' : '4 3',
+            targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 z' }
+          }
         }
-      },
-      labels: label
-        ? [{ position: 0.5, attrs: { text: { text: label, fill: '#1F1F1F', fontSize: 11 }, rect: { fill: '#F7F5F2EE', stroke: '#EDE0D4', rx: 10, ry: 10 } } }]
-        : undefined
-    }).addTo(graph);
+      }).addTo(graph);
+    });
   };
 
-  const renderGraph = () => {
+  const rerender = () => {
     graph.clear();
-    nodeCellsById.clear();
-    laneCells.clear();
-    yellowstoneSeed.days.forEach((day) => {
-      const lane = laneForDay(day.day);
-      lane.attr('label/text', `Day ${day.day} · ${day.title}`);
-      laneCells.set(day.day, lane);
-    });
-    yellowstoneSeed.nodes.forEach(createTravelNode);
-    yellowstoneSeed.edges.forEach((e) => createLink(e.source, e.target, e.label, e.critical));
+    nodeViews.clear();
+    yellowstoneSeed.nodes.forEach(renderNode);
+    renderLinks();
   };
 
-  const updateGeoAnchoredLayout = () => {
+  const applyFilterVisibility = () => {
     yellowstoneSeed.nodes.forEach((node) => {
-      const bundle = nodeCellsById.get(node.id);
-      if (!bundle) return;
-      const pos = nodePositionFromGeo(node);
-      bundle.card.position(pos.x, pos.y);
-      bundle.strip.position(pos.x + 2, pos.y + 2);
+      const v = nodeViews.get(node.id);
+      if (!v) return;
+      const visible = nodeIsVisible(node);
+      v.card.attr('root/display', visible ? 'block' : 'none');
+      v.strip.attr('root/display', visible ? 'block' : 'none');
     });
   };
 
-  const decisionComparison = (decisionNodeId: string) => {
-    const options = yellowstoneSeed.edges
-      .filter((e) => e.source === decisionNodeId)
-      .map((edge) => yellowstoneSeed.nodes.find((n) => n.id === edge.target))
-      .filter((n): n is TripNodeData => Boolean(n));
-
-    if (options.length < 2) return 'This decision node needs at least two outgoing options.';
-    const scored = options.map((option) => {
-      const score = Math.max(
-        0,
-        Math.min(
-          10,
-          Number(
-            (
-              option.weights.joy * 0.35 +
-              option.weights.uniqueness * 0.25 -
-              option.weights.timeCost * 0.15 -
-              option.weights.budgetImpact * 0.15 -
-              option.weights.effort * 0.1 +
-              4.5
-            ).toFixed(1)
-          )
-        )
-      );
-      return { option, score };
-    });
-
-    const recommended = scored.reduce((best, current) => (current.score > best.score ? current : best));
-    return `<div class="decision-grid">${scored
-      .map(
-        ({ option, score }) =>
-          `<article class="decision-card ${recommended.option.id === option.id ? 'recommended' : ''}"><h4>${option.icon} ${option.title}</h4><p>Score: <strong>${score}/10</strong></p><p>🌟 ${option.weights.joy} · ⏱️ ${option.weights.timeCost} · 💸 ${option.weights.budgetImpact} · 🚶 ${option.weights.effort} · 🎲 ${option.weights.uniqueness}</p></article>`
-      )
-      .join('')}</div><p class="decision-note">Recommended now: <strong>${recommended.option.title}</strong>.</p>`;
-  };
-
-  const refreshMetricsAndIssues = () => {
+  const refreshSummary = () => {
     const issues = validatePlan(yellowstoneSeed);
-    const summary = summarizePlan(yellowstoneSeed, issues);
+    const s = summarizePlan(yellowstoneSeed, issues);
     (document.getElementById('metrics') as HTMLElement).innerHTML = `
-      <div class="metric"><span>Total Cost</span><strong>${summary.totalCost} EUR</strong></div>
-      <div class="metric"><span>Activities</span><strong>${summary.totalActivities}</strong></div>
-      <div class="metric"><span>Total Duration</span><strong>${summary.totalDurationHours}h</strong></div>
-      <div class="metric"><span>Alerts</span><strong>${summary.issues}</strong></div>
-      <div class="metric"><span>Trip Score</span><strong>${summary.tripScore}/10</strong></div>
-      <div class="metric"><span>Joy / Effort</span><strong>${summary.joyAverage} / ${summary.effortAverage}</strong></div>`;
+      <div class="metric"><span>Score</span><strong>${s.tripScore}/10</strong></div>
+      <div class="metric"><span>Cost</span><strong>${s.totalCost} EUR</strong></div>
+      <div class="metric"><span>Activities</span><strong>${s.totalActivities}</strong></div>
+      <div class="metric"><span>Alerts</span><strong>${s.issues}</strong></div>`;
 
+    (document.getElementById('alert-count') as HTMLElement).textContent = `(${issues.length})`;
     (document.getElementById('issues') as HTMLElement).innerHTML = issues
-      .map((i) => `<li class="${i.severity}"><strong>${i.severity.toUpperCase()}</strong> ${i.message}</li>`)
+      .slice(0, 8)
+      .map((i) => `<li class="${i.severity}">${i.message}</li>`)
       .join('');
   };
 
-  const pulseNode = (id: string) => {
-    const bundle = nodeCellsById.get(id);
-    if (!bundle) return;
-    bundle.card.attr('body/strokeWidth', 3);
-    bundle.card.attr('body/stroke', '#D4A373');
-    setTimeout(() => {
-      bundle.card.attr('body/strokeWidth', 1.3);
-      bundle.card.attr('body/stroke', '#EDE0D4');
-    }, 650);
+  const renderFilters = () => {
+    const dayChips = ['all', ...yellowstoneSeed.days.map((d) => d.day.toString())]
+      .map((d) => `<button class="chip ${state.day.toString() === d ? 'active' : ''}" data-day="${d}">${d === 'all' ? 'All days' : `Day ${d}`}</button>`)
+      .join('');
+
+    (document.getElementById('filters') as HTMLElement).innerHTML = `
+      <div class="chip-group">${dayChips}</div>
+      <label>Category
+        <select id="category-filter">
+          <option value="all">All</option>
+          ${Object.keys(TYPE_COLORS).map((t) => `<option value="${t}" ${state.category === t ? 'selected' : ''}>${t}</option>`).join('')}
+        </select>
+      </label>
+      <label>Max cost <input id="cost-filter" type="number" min="0" placeholder="No limit" /></label>
+      <label>Priority
+        <select id="priority-filter">
+          <option value="all">All</option>
+          <option ${state.priority === 'high' ? 'selected' : ''}>high</option>
+          <option ${state.priority === 'medium' ? 'selected' : ''}>medium</option>
+          <option ${state.priority === 'low' ? 'selected' : ''}>low</option>
+        </select>
+      </label>
+    `;
+
+    document.querySelectorAll<HTMLButtonElement>('[data-day]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const raw = b.dataset.day || 'all';
+        state.day = raw === 'all' ? 'all' : Number(raw);
+        renderFilters();
+        applyFilterVisibility();
+      });
+    });
+
+    (document.getElementById('category-filter') as HTMLSelectElement).onchange = (e) => {
+      state.category = (e.target as HTMLSelectElement).value as TripNodeType | 'all';
+      applyFilterVisibility();
+    };
+    (document.getElementById('cost-filter') as HTMLInputElement).onchange = (e) => {
+      const v = Number((e.target as HTMLInputElement).value);
+      state.maxCost = Number.isFinite(v) && v > 0 ? v : Infinity;
+      applyFilterVisibility();
+    };
+    (document.getElementById('priority-filter') as HTMLSelectElement).onchange = (e) => {
+      state.priority = (e.target as HTMLSelectElement).value as typeof state.priority;
+      applyFilterVisibility();
+    };
   };
 
   const renderStencil = () => {
     const host = document.getElementById('stencil') as HTMLElement;
     host.innerHTML = '';
     (Object.keys(TYPE_COLORS) as TripNodeType[]).forEach((type) => {
-      const button = document.createElement('button');
-      button.className = 'stencil-btn';
-      button.style.borderColor = TYPE_COLORS[type];
-      button.textContent = `+ ${type.replace('_', ' ')}`;
-      button.addEventListener('click', () => {
+      const btn = document.createElement('button');
+      btn.className = 'stencil-btn';
+      btn.textContent = `+ ${type.replace('_', ' ')}`;
+      btn.style.borderColor = TYPE_COLORS[type];
+      btn.onclick = () => {
         const id = `custom-${Math.random().toString(36).slice(2, 9)}`;
-        const center = map.getCenter();
-        const newNode = createQuickNode(type, id);
-        newNode.geo = { lat: center.lat, lng: center.lng };
-        yellowstoneSeed.nodes.push(newNode);
-        renderGraph();
-        refreshMetricsAndIssues();
-        pulseNode(id);
-      });
-      host.appendChild(button);
+        const n = createQuickNode(type, id);
+        n.geo = map.getCenter();
+        yellowstoneSeed.nodes.push(n);
+        rerender();
+        refreshSummary();
+      };
+      host.appendChild(btn);
     });
   };
 
-  const renderFilters = () => {
-    const filterEl = document.getElementById('filters') as HTMLElement;
-    filterEl.innerHTML = `<label>Day <select id="day-filter"><option value="all">All</option>${yellowstoneSeed.days
-      .map((d) => `<option value="${d.day}">Day ${d.day}</option>`)
-      .join('')}</select></label>
-      <label>Category <select id="category-filter"><option value="all">All</option>${Object.keys(TYPE_COLORS)
-        .map((type) => `<option value="${type}">${type}</option>`)
-        .join('')}</select></label>
-      <label>Max Cost <input id="cost-filter" type="number" min="0" placeholder="No limit"/></label>
-      <label>Priority <select id="priority-filter"><option value="all">All</option><option>high</option><option>medium</option><option>low</option></select></label>
-      <button id="toggle-day-groups">Collapse / Expand Day Groups</button>`;
-
-    const apply = () => {
-      const day = (document.getElementById('day-filter') as HTMLSelectElement).value;
-      const category = (document.getElementById('category-filter') as HTMLSelectElement).value;
-      const maxCost = Number((document.getElementById('cost-filter') as HTMLInputElement).value || Infinity);
-      const priority = (document.getElementById('priority-filter') as HTMLSelectElement).value;
-      yellowstoneSeed.nodes.forEach((node) => {
-        const visible =
-          (day === 'all' || node.day === Number(day)) &&
-          (category === 'all' || node.category === category) &&
-          node.cost <= maxCost &&
-          (priority === 'all' || node.priority === priority);
-        const bundle = nodeCellsById.get(node.id);
-        bundle?.card.attr('root/display', visible ? 'block' : 'none');
-        bundle?.strip.attr('root/display', visible ? 'block' : 'none');
-      });
-    };
-
-    filterEl.querySelectorAll('select, input').forEach((el) => el.addEventListener('change', apply));
-    let collapsed = false;
-    document.getElementById('toggle-day-groups')?.addEventListener('click', () => {
-      collapsed = !collapsed;
-      yellowstoneSeed.days.forEach((day) => laneCells.get(day.day)?.attr('root/display', collapsed ? 'none' : 'block'));
-    });
+  const decisionHtml = (decisionId: string) => {
+    const options = yellowstoneSeed.edges
+      .filter((e) => e.source === decisionId)
+      .map((e) => yellowstoneSeed.nodes.find((n) => n.id === e.target))
+      .filter((n): n is TripNodeData => Boolean(n));
+    if (options.length < 2) return 'Needs 2+ branches.';
+    return options
+      .map((o) => `<div class='decision-card'><strong>${o.title}</strong><br/>🌟${o.weights.joy} · 💸${o.weights.budgetImpact} · 🚶${o.weights.effort}</div>`)
+      .join('');
   };
 
-  const attachInspector = () => {
-    paper.on('element:pointerclick', (cellView) => {
-      const id = cellView.model.id.toString();
-      const data = yellowstoneSeed.nodes.find((n) => n.id === id);
-      if (!data) return;
-      const decisionPanel = document.getElementById('decision-panel') as HTMLElement;
-      if (data.category === 'decision') decisionPanel.innerHTML = decisionComparison(data.id);
+  paper.on('element:pointerclick', (cv) => {
+    const id = cv.model.id.toString();
+    const node = yellowstoneSeed.nodes.find((n) => n.id === id);
+    if (!node) return;
 
-      const inspector = document.getElementById('inspector') as HTMLElement;
-      inspector.innerHTML = `<div class="form-field"><label>Title</label><input id="ins-title" value="${data.title}"/></div>
-      <div class="form-field"><label>Type</label><select id="ins-category">${Object.keys(TYPE_COLORS)
-        .map((type) => `<option value="${type}" ${data.category === type ? 'selected' : ''}>${type}</option>`)
-        .join('')}</select></div>
-      <div class="form-grid"><div class="form-field"><label>Day</label><input id="ins-day" type="number" min="1" max="4" value="${data.day}"/></div><div class="form-field"><label>Cost</label><input id="ins-cost" type="number" value="${data.cost}"/></div></div>
-      <div class="form-grid"><div class="form-field"><label>Joy</label><input id="ins-joy" type="number" min="0" max="10" value="${data.weights.joy}"/></div><div class="form-field"><label>Uniqueness</label><input id="ins-uniq" type="number" min="0" max="10" value="${data.weights.uniqueness}"/></div></div>
-      <div class="form-grid"><div class="form-field"><label>Time Cost</label><input id="ins-time-cost" type="number" min="0" max="10" value="${data.weights.timeCost}"/></div><div class="form-field"><label>Effort</label><input id="ins-effort" type="number" min="0" max="10" value="${data.weights.effort}"/></div></div>
-      <div class="form-field"><label>Budget Impact</label><input id="ins-budget" type="number" min="0" max="10" value="${data.weights.budgetImpact}"/></div>
-      <button id="ins-save">Save node</button>`;
+    nodeViews.forEach((view) => view.card.attr('body/stroke', '#E6D8CA'));
+    nodeViews.get(id)?.card.attr('body/stroke', '#D4A373');
 
-      document.getElementById('ins-save')?.addEventListener('click', () => {
-        data.title = (document.getElementById('ins-title') as HTMLInputElement).value;
-        data.category = (document.getElementById('ins-category') as HTMLSelectElement).value as TripNodeType;
-        data.day = Number((document.getElementById('ins-day') as HTMLInputElement).value);
-        data.cost = Number((document.getElementById('ins-cost') as HTMLInputElement).value);
-        data.weights.joy = Number((document.getElementById('ins-joy') as HTMLInputElement).value);
-        data.weights.uniqueness = Number((document.getElementById('ins-uniq') as HTMLInputElement).value);
-        data.weights.timeCost = Number((document.getElementById('ins-time-cost') as HTMLInputElement).value);
-        data.weights.effort = Number((document.getElementById('ins-effort') as HTMLInputElement).value);
-        data.weights.budgetImpact = Number((document.getElementById('ins-budget') as HTMLInputElement).value);
-        renderGraph();
-        refreshMetricsAndIssues();
-      });
+    (document.getElementById('inspector') as HTMLElement).innerHTML = `
+      <div class='form-field'><label>Title</label><input id='title' value='${node.title}'/></div>
+      <div class='form-grid'>
+        <div class='form-field'><label>Day</label><input id='day' type='number' value='${node.day}'/></div>
+        <div class='form-field'><label>Cost</label><input id='cost' type='number' value='${node.cost}'/></div>
+      </div>
+      <div class='form-grid'>
+        <div class='form-field'><label>Joy</label><input id='joy' type='number' min='0' max='10' value='${node.weights.joy}'/></div>
+        <div class='form-field'><label>Effort</label><input id='effort' type='number' min='0' max='10' value='${node.weights.effort}'/></div>
+      </div>
+      <button id='save'>Save</button>
+    `;
+
+    const decisionWrap = document.getElementById('decision-wrap') as HTMLDetailsElement;
+    if (node.category === 'decision') {
+      decisionWrap.open = true;
+      (document.getElementById('decision-panel') as HTMLElement).innerHTML = decisionHtml(node.id);
+    }
+
+    document.getElementById('save')?.addEventListener('click', () => {
+      node.title = (document.getElementById('title') as HTMLInputElement).value;
+      node.day = Number((document.getElementById('day') as HTMLInputElement).value);
+      node.cost = Number((document.getElementById('cost') as HTMLInputElement).value);
+      node.weights.joy = Number((document.getElementById('joy') as HTMLInputElement).value);
+      node.weights.effort = Number((document.getElementById('effort') as HTMLInputElement).value);
+      rerender();
+      refreshSummary();
+      applyFilterVisibility();
     });
-  };
+  });
+
+  paper.on('element:pointerup', (cv) => {
+    const id = cv.model.id.toString();
+    const node = yellowstoneSeed.nodes.find((n) => n.id === id);
+    const view = nodeViews.get(id);
+    if (!node || !view) return;
+    const center: [number, number] = [
+      view.card.position().x + view.card.size().width / 2,
+      view.card.position().y + view.card.size().height / 2
+    ];
+    node.geo = map.containerPointToLatLng(center);
+  });
 
   const wireExportButtons = () => {
-    const download = (filename: string, content: string, mime: string) => {
-      const blob = new Blob([content], { type: mime });
+    const download = (name: string, content: string, type: string) => {
+      const blob = new Blob([content], { type });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = name;
       a.click();
       URL.revokeObjectURL(url);
     };
-
     document.getElementById('export-json')?.addEventListener('click', () => {
       const issues = validatePlan(yellowstoneSeed);
       download('journeygraph-plan.json', exportAsJson(yellowstoneSeed, issues), 'application/json');
@@ -494,28 +467,28 @@ async function bootstrap() {
     });
   };
 
-  paper.on('element:pointerup', (cellView) => {
-    const id = cellView.model.id.toString();
-    if (yellowstoneSeed.nodes.find((n) => n.id === id)) refreshNodeGeo(id);
-  });
-
-  renderGraph();
+  rerender();
   renderStencil();
   renderFilters();
-  refreshMetricsAndIssues();
-  attachInspector();
+  refreshSummary();
   wireExportButtons();
 
-  map.on('move', updateGeoAnchoredLayout);
-  map.on('zoom', updateGeoAnchoredLayout);
-  setTimeout(() => {
-    map.invalidateSize();
-    updateGeoAnchoredLayout();
-  }, 150);
+  map.on('move', () => {
+    yellowstoneSeed.nodes.forEach((n) => {
+      const p = positionFor(n);
+      const v = nodeViews.get(n.id);
+      if (!v) return;
+      v.card.position(p.x, p.y);
+      v.strip.position(p.x + 2, p.y + 2);
+    });
+  });
+  map.on('zoom', () => map.invalidateSize());
+
+  setTimeout(() => map.invalidateSize(), 150);
 
   paper.on('blank:mousewheel', (_evt, _x, _y, delta) => {
-    const scale = paper.scale();
-    const next = util.clamp(scale.sx + delta * 0.1, 0.5, 1.6);
+    const s = paper.scale();
+    const next = util.clamp(s.sx + delta * 0.1, 0.6, 1.5);
     paper.scale(next, next);
   });
 }
