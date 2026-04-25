@@ -75,8 +75,10 @@ class FallbackMapAdapter implements MapAdapter {
 async function createMapAdapter(hostId: string): Promise<MapAdapter> {
   const mapEl = document.getElementById(hostId) as HTMLElement;
   try {
-    const leafletPkg = await import(/* @vite-ignore */ 'leaflet');
-    await import(/* @vite-ignore */ 'leaflet/dist/leaflet.css');
+    const leafletModule = 'leaflet';
+    const leafletCssModule = 'leaflet/dist/leaflet.css';
+    const leafletPkg = await import(/* @vite-ignore */ leafletModule);
+    await import(/* @vite-ignore */ leafletCssModule);
     const L = leafletPkg.default;
     const map = L.map(hostId, { zoomControl: true, attributionControl: true }).setView([44.6, -110.6], 9);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
